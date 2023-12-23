@@ -2,9 +2,6 @@
 // MADE BY NOTNHEAVY. USES GPL-3, AS PER REQUEST OF SOURCEMOD               //
 //////////////////////////////////////////////////////////////////////////////
 
-// TODO LIST:
-// - in-game commands for writing to autosave.cfg (now working on)
-
 // How I feel writing SourceMod plugins:
 // Apdujęs einu ten, kur muzika groja
 // Apsirūkęs aš ten pasijuntu lyg rojuj. 
