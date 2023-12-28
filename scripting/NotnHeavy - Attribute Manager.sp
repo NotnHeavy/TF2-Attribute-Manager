@@ -2,6 +2,9 @@
 // MADE BY NOTNHEAVY. USES GPL-3, AS PER REQUEST OF SOURCEMOD               //
 //////////////////////////////////////////////////////////////////////////////
 
+// TODO: natives
+// TODO: base configs
+
 // How I feel writing SourceMod plugins:
 // Apdujęs einu ten, kur muzika groja
 // Apsirūkęs aš ten pasijuntu lyg rojuj. 
@@ -20,14 +23,15 @@
 #include <sdkhooks>
 #include <tf2_stocks>
 #include <dhooks>
-#include <tf2attributes>
+#include <third_party/tf2attributes>
 
 #undef REQUIRE_PLUGIN
-#include <tf_econ_data>
-#include <tf_custom_attributes>
+#include <third_party/tf_econ_data>
+#include <third_party/tf_custom_attributes>
 #define REQUIRE_PLUGIN
 
 #define AUTOSAVE_PATH "addons/sourcemod/configs/attribute_manager/autosave.cfg"
+#define GLOBALS_PATH "addons/sourcemod/configs/attribute_manager.cfg"
 
 #define PLUGIN_NAME "NotnHeavy - Attribute Manager"
 
@@ -248,6 +252,29 @@ static bool FindDefinitionByClass(Definition def, TFClassType eClass)
     return false;
 }
 
+static bool FindDefinitionComplex(Definition def, char szName[64])
+{
+    int itemdef = StringToInt(szName);
+    if (itemdef > 0 || EqualsZero(szName))
+        return FindDefinition(def, itemdef);
+
+    if (FindDefinitionByName(def, szName))
+        return true;
+
+    itemdef = (g_LoadedEcon) ? RetrieveItemDefByName(szName) : TF_ITEMDEF_DEFAULT;
+    if (itemdef == TF_ITEMDEF_DEFAULT)
+    {
+        for (int i = 0; i < sizeof(g_Classes); ++i)
+        {
+            if (strcmp(g_Classes[i].m_szName, szName, false) == 0)
+                return FindDefinitionByClass(def, g_Classes[i].m_eClass);
+        }
+        return false;
+    }
+    
+    return FindDefinition(def, itemdef);
+}
+
 //////////////////////////////////////////////////////////////////////////////
 // INITIALISATION                                                           //
 //////////////////////////////////////////////////////////////////////////////
@@ -255,11 +282,8 @@ static bool FindDefinitionByClass(Definition def, TFClassType eClass)
 public void OnPluginStart()
 {
     LoadTranslations("common.phrases");
-
-    // Copy AUTOSAVE_PATH to the current path specified.
     g_AllLoaded = false;
-    strcopy(g_szCurrentPath, sizeof(g_szCurrentPath), AUTOSAVE_PATH);
-    
+ 
     // Load gamedata.
     GameData config = LoadGameConfigFile("sm-tf2.games");
     if (!config)
@@ -280,17 +304,32 @@ public void OnPluginEnd()
         ExportKeyValues(AUTOSAVE_PATH);
 }
 
+static void LoadDefaults()
+{
+    strcopy(g_szCurrentPath, sizeof(g_szCurrentPath), AUTOSAVE_PATH);
+}
+
 //////////////////////////////////////////////////////////////////////////////
 // LIBRARIES                                                                //
 //////////////////////////////////////////////////////////////////////////////
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
+    // Mark custom library natives as optional.
     MarkNativeAsOptional("TF2Econ_GetItemList");
     MarkNativeAsOptional("TF2Econ_GetItemName");
+    MarkNativeAsOptional("TF2Econ_GetAttributeName");
     MarkNativeAsOptional("TF2CustAttr_SetInt");
     MarkNativeAsOptional("TF2CustAttr_SetFloat");
     MarkNativeAsOptional("TF2CustAttr_SetString");
+
+    // Register natives within this plugin.
+    CreateNative("AttributeManager_GetDefinitions", Native_AttributeManager_GetDefinitions);
+    CreateNative("AttributeManager_SetDefinitions", Native_AttributeManager_SetDefinitions);
+    CreateNative("AttributeManager_Write", Native_AttributeManager_Write);
+    CreateNative("AttributeManager_Load", Native_AttributeManager_Load);
+    CreateNative("AttributeManager_Refresh", Native_AttributeManager_Refresh);
+    CreateNative("AttributeManager_GetLoadedConfig", Native_AttributeManager_GetLoadedConfig);
     return APLRes_Success;
 }
 
@@ -300,17 +339,51 @@ public void OnAllPluginsLoaded()
     PrintToServer("--------------------------------------------------------");
     g_LoadedEcon = LibraryExists("tf_econ_data");
     g_LoadedCustomAttributes = LibraryExists("tf2custattr");
+
+    // Parse attribute_manager.cfg.
+    if (!FileExists(GLOBALS_PATH, true))
+    {
+        LoadDefaults();
+        PrintToServer("\"%s\" doesn't exist, not parsing globals...\n", GLOBALS_PATH);
+    }
+    else
+    {
+        PrintToServer("Parsing attribute_manager.cfg.");
+
+        KeyValues kv = new KeyValues("Settings");
+        kv.ImportFromFile(GLOBALS_PATH);
+        kv.GotoFirstSubKey();
+        
+        kv.GetString("defaultconfig", g_szCurrentPath, sizeof(g_szCurrentPath), GLOBALS_PATH);
+
+        if (strlen(g_szCurrentPath) == 0)
+        {
+            strcopy(g_szCurrentPath, sizeof(g_szCurrentPath), AUTOSAVE_PATH);
+            PrintToServer("Parameter \"defaultconfig\" blank, defaulting to \"%s\"...", AUTOSAVE_PATH);
+        }
+        else if (strcmp(g_szCurrentPath, GLOBALS_PATH) != 0)
+            Format(g_szCurrentPath, sizeof(g_szCurrentPath), "addons/sourcemod/configs/attribute_manager/%s.cfg", g_szCurrentPath);
+        
+        if (!FileExists(g_szCurrentPath))
+            ThrowError("\"%s\" is not a valid config file (parameter \"defaultconfig\")", g_szCurrentPath);
+        else
+            PrintToServer("g_szCurrentPath set to \"%s\".", g_szCurrentPath);
+
+        PrintToServer("");
+        delete kv;
+    }
     
     // Create the ArrayList and fill it with definitions, if an autosave is present.
     g_Definitions = new ArrayList(sizeof(Definition));
-    if (FileExists(AUTOSAVE_PATH, true))
-        ParseDefinitions(AUTOSAVE_PATH);
+    if (FileExists(g_szCurrentPath, true))
+        ParseDefinitions(g_szCurrentPath);
     else
-        PrintToServer("\"%s\" doesn't exist, not parsing any definitions...", AUTOSAVE_PATH);
+        PrintToServer("\"%s\" doesn't exist, not parsing any definitions...", g_szCurrentPath);
 
     // Create a list of commands server admins can use.
     RegAdminCmd("attrib_write", attrib_write, ADMFLAG_GENERIC, "Creates a file (if it doesn't exist beforehand) and writes all definitions to it. If no name is provided, it will write to autosave.cfg\nattrib_write configname");
     RegAdminCmd("attrib_loadconfig", attrib_loadconfig, ADMFLAG_GENERIC, "Load definitions from an existing config\nattrib_loadconfig configname");
+    RegAdminCmd("attrib_load", attrib_loadconfig, ADMFLAG_GENERIC, "Load definitions from an existing config\attrib_load configname");
     RegAdminCmd("attrib_listdefinitions", attrib_listdefinitions, ADMFLAG_GENERIC, "List all the names of the current definitions\nattrib_listdefinitions");
     RegAdminCmd("attrib_listdefs", attrib_listdefinitions, ADMFLAG_GENERIC, "List all the names of the current definitions\nattrib_listdefs");
     RegAdminCmd("attrib_list", attrib_listdefinitions, ADMFLAG_GENERIC, "List all the names of the current definitions\nattrib_list");
@@ -322,10 +395,10 @@ public void OnAllPluginsLoaded()
     RegAdminCmd("attrib_refresh", attrib_refresh, ADMFLAG_GENERIC, "Reparse all definitions\nattrib_refresh");
     RegAdminCmd("attrib_listdefinition", attrib_listdefinition, ADMFLAG_GENERIC, "List the properties and attributes of a definition\nattrib_listdefinition name");
     RegAdminCmd("attrib_listdef", attrib_listdefinition, ADMFLAG_GENERIC, "List the properties and attributes of a definition\nattrib_listdef name");
-    RegAdminCmd("attrib_addattribute", attrib_addattribute, ADMFLAG_GENERIC, "Add an attribute to a definition\nattrib_addattribute name attribute value");
-    RegAdminCmd("attrib_addattrib", attrib_addattribute, ADMFLAG_GENERIC, "Add an attribute to a definition\nattrib_addattrib name attribute value");
-    RegAdminCmd("attrib_removeattribute", attrib_removeattribute, ADMFLAG_GENERIC, "Remove an attribute from a definition\nattrib_removeattribute name attribute");
-    RegAdminCmd("attrib_removeattrib", attrib_removeattribute, ADMFLAG_GENERIC, "Remove an attribute from a definition\nattrib_removeattrib name attribute");
+    RegAdminCmd("attrib_addattribute", attrib_addattribute, ADMFLAG_GENERIC, "Add an attribute to a definition\nattrib_addattribute name (attribute name | attribute def index if TF2 Econ Data is loaded) value");
+    RegAdminCmd("attrib_addattrib", attrib_addattribute, ADMFLAG_GENERIC, "Add an attribute to a definition\nattrib_addattrib name (attribute name | attribute def index if TF2 Econ Data is loaded) value");
+    RegAdminCmd("attrib_removeattribute", attrib_removeattribute, ADMFLAG_GENERIC, "Remove an attribute from a definition\nattrib_removeattribute name (attribute name | attribute def index if TF2 Econ Data is loaded)");
+    RegAdminCmd("attrib_removeattrib", attrib_removeattribute, ADMFLAG_GENERIC, "Remove an attribute from a definition\nattrib_removeattrib name (attribute name | attribute def index if TF2 Econ Data is loaded)");
     RegAdminCmd("attrib_addcustomattribute", attrib_addcustomattribute, ADMFLAG_GENERIC, "Add a custom attribute to a definition\nattrib_addcustomattribute name attribute value");
     RegAdminCmd("attrib_addcustomattrib", attrib_addcustomattribute, ADMFLAG_GENERIC, "Add a custom attribute to a definition\nattrib_addcustomattrib name attribute value");
     RegAdminCmd("attrib_addcustom", attrib_addcustomattribute, ADMFLAG_GENERIC, "Add a custom attribute to a definition\nattrib_addcustom name attribute value");
@@ -395,7 +468,7 @@ static void ParseDefinitions(const char[] path)
     if (!FileExists(path, true))
         return;
     g_Definitions.Clear();
-    PrintToServer("Parsing definitions at \"%s\"!", path);
+    PrintToServer("Parsing definitions at \"%s\".", path);
 
     KeyValues kv = new KeyValues("Attributes");
     kv.ImportFromFile(path);
@@ -431,23 +504,13 @@ static void ParseDefinitions(const char[] path)
         }
 
         char inherits_string[64];
-        int inherits;
         kv.GetString("#inherits", inherits_string, sizeof(inherits_string));
         TrimString(inherits_string);
-
-        if (g_LoadedEcon)
-            inherits = RetrieveItemDefByName(inherits_string);
-        if (inherits == TF_ITEMDEF_DEFAULT)
-        {
-            inherits = StringToInt(inherits_string);
-            if (inherits == 0 && !EqualsZero(inherits_string))
-                inherits = TF_ITEMDEF_DEFAULT;
-        }
 
         Definition inherits_def;
         Definition def;
         CreateDefinition(def, section, itemdef, eClass);
-        if ((inherits != TF_ITEMDEF_DEFAULT && FindDefinition(inherits_def, inherits)) || FindDefinitionByName(inherits_def, inherits_string))
+        if (FindDefinitionComplex(inherits_def, inherits_string))
         {
             delete def.m_Attributes;
             delete def.m_CustomAttributes;
@@ -624,8 +687,17 @@ static void ExportKeyValues(const char[] buffer)
         Definition def;
         g_Definitions.GetArray(i, def);
         
+        // If an itemdef is provided, use that as the name instead of the weapon's name.
+        if (def.m_iItemDef != TF_ITEMDEF_DEFAULT)
+        {
+            char itemdef_string[64];
+            IntToString(def.m_iItemDef, itemdef_string, sizeof(itemdef_string));
+            kv.JumpToKey(itemdef_string, true);
+        }
+        else
+            kv.JumpToKey(def.m_szName, true);
+
         IntToString(view_as<int>(!def.m_bOnlyIterateItemViewAttributes), value, sizeof(value));
-        kv.JumpToKey(def.m_szName, true);
         kv.SetString("#keepattributes", value);
         
         for (int i2 = 0, size2 = def.m_Attributes.Length; i2 < size2; ++i2)
@@ -782,7 +854,17 @@ Action attrib_listdefinitions(int client, int args)
     {
         Definition def;
         g_Definitions.GetArray(i, def);
-        ReplyToCommand(client, "[Attribute Manager]: Definition \"%s\" (%s)", def.m_szName, ((def.m_iItemDef != TF_ITEMDEF_DEFAULT) ? "Weapon" : ((def.m_eClass != TFClass_Unknown) ? "Class" : "Custom tag")));
+
+        // Get weapon name if the definition is a weapon.
+        char buffer[64];
+        if (def.m_iItemDef != TF_ITEMDEF_DEFAULT)
+        {
+            char name[64];
+            TF2Econ_GetItemName(def.m_iItemDef, name, sizeof(name));
+            Format(buffer, sizeof(buffer), "Weapon - %s", name);
+        }
+
+        ReplyToCommand(client, "[Attribute Manager]: Definition \"%s\" (%s)", def.m_szName, ((def.m_iItemDef != TF_ITEMDEF_DEFAULT) ? buffer : ((def.m_eClass != TFClass_Unknown) ? "Class" : "Custom tag")));
     }
     return Plugin_Continue;
 }
@@ -805,7 +887,7 @@ Action attrib_add(int client, int args)
 
     // Check if the definition already exists.
     Definition throwaway;
-    if (FindDefinitionByName(throwaway, arg))
+    if (FindDefinitionComplex(throwaway, arg))
     {
         ReplyToCommand(client, "[Attribute Manager]: Definition %s already exists!", arg);
         return Plugin_Continue;
@@ -833,6 +915,7 @@ Action attrib_add(int client, int args)
         }
     }
 
+    /*
     int inherits;
     if (g_LoadedEcon)
         inherits = RetrieveItemDefByName(inherits_string);
@@ -842,11 +925,13 @@ Action attrib_add(int client, int args)
         if (inherits == 0 && !EqualsZero(inherits_string))
             inherits = TF_ITEMDEF_DEFAULT;
     }
+    */
 
     Definition inherits_def;
     Definition def;
     CreateDefinition(def, arg, itemdef, eClass);
-    if ((inherits != TF_ITEMDEF_DEFAULT && FindDefinition(inherits_def, inherits)) || FindDefinitionByName(inherits_def, inherits_string))
+    //if ((inherits != TF_ITEMDEF_DEFAULT && FindDefinition(inherits_def, inherits)) || FindDefinitionByName(inherits_def, inherits_string))
+    if (FindDefinitionComplex(inherits_def, inherits_string))
     {
         delete def.m_Attributes;
         delete def.m_CustomAttributes;
@@ -876,10 +961,7 @@ Action attrib_remove(int client, int args)
 
     // Check that the definition actually exists.
     Definition def;
-    int inherits = TF_ITEMDEF_DEFAULT;
-    if (g_LoadedEcon)
-        inherits = RetrieveItemDefByName(arg);
-    if (!FindDefinitionByName(def, arg) && !FindDefinition(def, inherits))
+    if (!FindDefinitionComplex(def, arg))
     {
         ReplyToCommand(client, "[Attribute Manager]: Definition %s does not exist", arg);
         return Plugin_Continue;
@@ -916,10 +998,7 @@ Action attrib_modify(int client, int args)
 
     // Check that the definition actually exists.
     Definition def;
-    int inherits = TF_ITEMDEF_DEFAULT;
-    if (g_LoadedEcon)
-        inherits = RetrieveItemDefByName(name);
-    if (!FindDefinitionByName(def, name) && !FindDefinition(def, inherits))
+    if (!FindDefinitionComplex(def, name))
     {
         ReplyToCommand(client, "[Attribute Manager]: Definition %s does not exist", name);
         return Plugin_Continue;
@@ -965,10 +1044,7 @@ Action attrib_listdefinition(int client, int args)
 
     // Check that the definition actually exists.
     Definition def;
-    int inherits = TF_ITEMDEF_DEFAULT;
-    if (g_LoadedEcon)
-        inherits = RetrieveItemDefByName(arg);
-    if (!FindDefinitionByName(def, arg) && !FindDefinition(def, inherits))
+    if (!FindDefinitionComplex(def, arg))
     {
         ReplyToCommand(client, "[Attribute Manager]: Definition %s does not exist", arg);
         return Plugin_Continue;
@@ -1019,12 +1095,32 @@ Action attrib_addattribute(int client, int args)
 
     // Check that the definition actually exists.
     Definition def;
-    int inherits = TF_ITEMDEF_DEFAULT;
-    if (g_LoadedEcon)
-        inherits = RetrieveItemDefByName(name);
-    if (!FindDefinitionByName(def, name) && !FindDefinition(def, inherits))
+    if (!FindDefinitionComplex(def, name))
     {
         ReplyToCommand(client, "[Attribute Manager]: Definition %s does not exist", name);
+        return Plugin_Continue;
+    }
+
+    // If the attribute provided is a def index, convert it to its actual name.
+    int defindex = StringToInt(attribute);
+    if (defindex > 0)
+    {
+        if (!g_LoadedEcon)
+        {
+            ReplyToCommand(client, "[Attribute Manager]: Cannot convert attribute index %i to attribute name due to TF2 Econ Data not being loaded. Contact the server owner.", defindex);
+            return Plugin_Continue;
+        }
+        if (!TF2Econ_GetAttributeName(defindex, attribute, sizeof(attribute)))
+        {
+            ReplyToCommand(client, "[Attribute Manager]: Attribute definition index %i is invalid", defindex);
+            return Plugin_Continue;
+        }
+    }
+
+    // Verify that the attribute name is valid.
+    if (!TF2Attrib_IsValidAttributeName(attribute))
+    {
+        ReplyToCommand(client, "[Attribute Manager]: Attribute name \"%s\" is not valid", attribute);
         return Plugin_Continue;
     }
 
@@ -1053,12 +1149,32 @@ Action attrib_removeattribute(int client, int args)
 
     // Check that the definition actually exists.
     Definition def;
-    int inherits = TF_ITEMDEF_DEFAULT;
-    if (g_LoadedEcon)
-        inherits = RetrieveItemDefByName(name);
-    if (!FindDefinitionByName(def, name) && !FindDefinition(def, inherits))
+    if (!FindDefinitionComplex(def, name))
     {
         ReplyToCommand(client, "[Attribute Manager]: Definition %s does not exist", name);
+        return Plugin_Continue;
+    }
+
+    // If the attribute provided is a def index, convert it to its actual name.
+    int defindex = StringToInt(attribute);
+    if (defindex > 0)
+    {
+        if (!g_LoadedEcon)
+        {
+            ReplyToCommand(client, "[Attribute Manager]: Cannot convert attribute index %i to attribute name due to TF2 Econ Data not being loaded. Contact the server owner.", defindex);
+            return Plugin_Continue;
+        }
+        if (!TF2Econ_GetAttributeName(defindex, attribute, sizeof(attribute)))
+        {
+            ReplyToCommand(client, "[Attribute Manager]: Attribute definition index %i is invalid", defindex);
+            return Plugin_Continue;
+        }
+    }
+
+    // Verify that the attribute name is valid.
+    if (!TF2Attrib_IsValidAttributeName(attribute))
+    {
+        ReplyToCommand(client, "[Attribute Manager]: Attribute name \"%s\" is not valid", attribute);
         return Plugin_Continue;
     }
 
@@ -1099,10 +1215,7 @@ Action attrib_addcustomattribute(int client, int args)
 
     // Check that the definition actually exists.
     Definition def;
-    int inherits = TF_ITEMDEF_DEFAULT;
-    if (g_LoadedEcon)
-        inherits = RetrieveItemDefByName(name);
-    if (!FindDefinitionByName(def, name) && !FindDefinition(def, inherits))
+    if (!FindDefinitionComplex(def, name))
     {
         ReplyToCommand(client, "[Attribute Manager]: Definition %s does not exist", name);
         return Plugin_Continue;
@@ -1133,10 +1246,7 @@ Action attrib_removecustomattribute(int client, int args)
 
     // Check that the definition actually exists.
     Definition def;
-    int inherits = TF_ITEMDEF_DEFAULT;
-    if (g_LoadedEcon)
-        inherits = RetrieveItemDefByName(name);
-    if (!FindDefinitionByName(def, name) && !FindDefinition(def, inherits))
+    if (!FindDefinitionComplex(def, name))
     {
         ReplyToCommand(client, "[Attribute Manager]: Definition %s does not exist", name);
         return Plugin_Continue;
@@ -1156,4 +1266,93 @@ Action attrib_removecustomattribute(int client, int args)
     }
     ReplyToCommand(client, "[Attribute Manager]: Could not find custom attribute \"%s\" in definition %s", attribute, def.m_szName);
     return Plugin_Continue;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// NATIVES                                                                  //
+//////////////////////////////////////////////////////////////////////////////
+
+// Returns an ArrayList of definitions.
+public any Native_AttributeManager_GetDefinitions(Handle plugin, int numParams)
+{
+    return g_Definitions.Clone();
+}
+
+// Updates g_Definitions on the plugin's end, manipulating weapon/class functionality.
+public any Native_AttributeManager_SetDefinitions(Handle plugin, int numParams)
+{
+    ArrayList list = GetNativeCell(1);
+    delete g_Definitions;
+    g_Definitions = list.Clone();
+    return 0;
+}
+
+// Writes all definitions to a config file.
+public any Native_AttributeManager_Write(Handle plugin, int numParams)
+{
+    // Check for a passed argument.
+    char arg[PLATFORM_MAX_PATH];
+    char buffer[PLATFORM_MAX_PATH];
+    
+    int bytes;
+    GetNativeString(1, arg, sizeof(arg), bytes);
+    if (bytes == 0)
+        strcopy(buffer, sizeof(buffer), AUTOSAVE_PATH);
+    else
+    {
+        TrimString(arg);
+        Format(buffer, sizeof(buffer), "addons/sourcemod/configs/attribute_manager/%s.cfg", arg);
+    }
+
+    // Open a new file.
+    if (!DirExists("addons/sourcemod/configs/attribute_manager/", true))
+        CreateDirectory("addons/sourcemod/configs/attribute_manager/", .use_valve_fs = true);
+
+    File file = OpenFile(buffer, "w", true);
+    if (!file)
+        return false;
+    delete file;
+
+    // Create a KeyValues pair and export it to the file.
+    ExportKeyValues(buffer);
+
+    // Return to command.
+    return true;
+}
+
+// Load definitions from a config file.
+public any Native_AttributeManager_Load(Handle plugin, int numParams)
+{
+    // Check for a passed argument.
+    char arg[PLATFORM_MAX_PATH];
+    char buffer[PLATFORM_MAX_PATH];
+    GetNativeString(1, arg, sizeof(arg));
+    TrimString(arg);
+    Format(buffer, sizeof(buffer), "addons/sourcemod/configs/attribute_manager/%s.cfg", arg);
+
+    // Check if it exists.
+    if (!FileExists(buffer))
+        return false;
+    
+    // Load all definitions from the file.
+    ParseDefinitions(buffer);
+    strcopy(g_szCurrentPath, sizeof(g_szCurrentPath), buffer);
+
+    // Return to command.
+    return true;
+}
+
+public any Native_AttributeManager_Refresh(Handle plugin, int numParams)
+{
+    ExportKeyValues(g_szCurrentPath);
+    ParseDefinitions(g_szCurrentPath);
+    return 0;
+}
+
+public any Native_AttributeManager_GetLoadedConfig(Handle plugin, int numParams)
+{
+    int maxlength = GetNativeCell(2);
+    int bytes = 0;
+    SetNativeString(1, g_szCurrentPath, maxlength, true, bytes);
+    return bytes;
 }
