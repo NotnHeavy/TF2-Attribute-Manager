@@ -2,9 +2,6 @@
 // MADE BY NOTNHEAVY. USES GPL-3, AS PER REQUEST OF SOURCEMOD               //
 //////////////////////////////////////////////////////////////////////////////
 
-// TODO: natives
-// TODO: base configs
-
 // How I feel writing SourceMod plugins:
 // Apdujęs einu ten, kur muzika groja
 // Apsirūkęs aš ten pasijuntu lyg rojuj. 
@@ -915,22 +912,9 @@ Action attrib_add(int client, int args)
         }
     }
 
-    /*
-    int inherits;
-    if (g_LoadedEcon)
-        inherits = RetrieveItemDefByName(inherits_string);
-    if (inherits == TF_ITEMDEF_DEFAULT)
-    {
-        inherits = StringToInt(inherits_string);
-        if (inherits == 0 && !EqualsZero(inherits_string))
-            inherits = TF_ITEMDEF_DEFAULT;
-    }
-    */
-
     Definition inherits_def;
     Definition def;
     CreateDefinition(def, arg, itemdef, eClass);
-    //if ((inherits != TF_ITEMDEF_DEFAULT && FindDefinition(inherits_def, inherits)) || FindDefinitionByName(inherits_def, inherits_string))
     if (FindDefinitionComplex(inherits_def, inherits_string))
     {
         delete def.m_Attributes;
