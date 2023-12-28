@@ -78,6 +78,8 @@ static ClassDefinition g_Classes[] = {
 
 static DynamicDetour DHooks_CTFPlayer_Regenerate;
 
+static GlobalForward g_LoadedDefinitionsForward;
+
 //////////////////////////////////////////////////////////////////////////////
 // DEFINITION                                                               //
 //////////////////////////////////////////////////////////////////////////////
@@ -292,6 +294,9 @@ public void OnPluginStart()
     DHooks_CTFPlayer_Regenerate.SetFromConf(config, SDKConf_Signature, "Regenerate");
     DHooks_CTFPlayer_Regenerate.Enable(Hook_Pre, CTFPlayer_Regenerate);
 
+    // Set up global forwrads.
+    g_LoadedDefinitionsForward = new GlobalForward("AttributeManager_OnDefinitionsLoaded", ET_Ignore, Param_Cell);
+
     delete config;
 }
 
@@ -327,6 +332,9 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
     CreateNative("AttributeManager_Load", Native_AttributeManager_Load);
     CreateNative("AttributeManager_Refresh", Native_AttributeManager_Refresh);
     CreateNative("AttributeManager_GetLoadedConfig", Native_AttributeManager_GetLoadedConfig);
+
+    // Register this plugin as a library.
+    RegPluginLibrary("NotnHeavy - Attribute Manager");
     return APLRes_Success;
 }
 
@@ -376,6 +384,9 @@ public void OnAllPluginsLoaded()
         ParseDefinitions(g_szCurrentPath);
     else
         PrintToServer("\"%s\" doesn't exist, not parsing any definitions...", g_szCurrentPath);
+    Call_StartForward(g_LoadedDefinitionsForward);
+    Call_PushCell(true);
+    Call_Finish();
 
     // Create a list of commands server admins can use.
     RegAdminCmd("attrib_write", attrib_write, ADMFLAG_GENERIC, "Creates a file (if it doesn't exist beforehand) and writes all definitions to it. If no name is provided, it will write to autosave.cfg\nattrib_write configname");
@@ -555,6 +566,11 @@ static void ParseDefinitions(const char[] path)
     }
     while (kv.GotoNextKey());
     delete kv;
+
+    // Call AttributeManager_OnDefinitionsLoaded().
+    Call_StartForward(g_LoadedDefinitionsForward);
+    Call_PushCell(false);
+    Call_Finish();
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1326,6 +1342,7 @@ public any Native_AttributeManager_Load(Handle plugin, int numParams)
     return true;
 }
 
+// Re-parses definitions from the currently loaded config file.
 public any Native_AttributeManager_Refresh(Handle plugin, int numParams)
 {
     ExportKeyValues(g_szCurrentPath);
@@ -1333,6 +1350,7 @@ public any Native_AttributeManager_Refresh(Handle plugin, int numParams)
     return 0;
 }
 
+// Returns the path of the current config file loaded.
 public any Native_AttributeManager_GetLoadedConfig(Handle plugin, int numParams)
 {
     int maxlength = GetNativeCell(2);
