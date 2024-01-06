@@ -41,7 +41,7 @@ public Plugin myinfo =
     name = PLUGIN_NAME,
     author = "NotnHeavy",
     description = "A simple manager for modifying TF2 weapons.",
-    version = "1.0",
+    version = "1.0.1",
     url = "none"
 };
 
@@ -418,6 +418,13 @@ public void OnAllPluginsLoaded()
     PrintToServer("\nTF2 Econ Data: %s", ((g_LoadedEcon) ? "loaded" : "not loaded"));
     PrintToServer("Custom Attributes Framework: %s", ((g_LoadedCustomAttributes) ? "loaded" : "not loaded"));
 
+    // Run OnEntityCreated() on existing entities.
+    for (int i = 1; i <= 2048; ++i)
+    {
+        if (IsValidEntity(i))
+            OnEntityCreated(i, "");
+    }
+
     g_AllLoaded = true;
     PrintToServer("\n\"%s\" has loaded.\n--------------------------------------------------------", PLUGIN_NAME);
 }
@@ -687,6 +694,15 @@ static void SetAttributes(int entity, Definition def)
     }
 }
 
+static void SortPlayerAttributes(int entity)
+{
+    TFClassType class = TF2_GetPlayerClass(entity);
+    Definition def;
+    TF2Attrib_RemoveAll(entity);
+    if (FindDefinitionByClass(def, class))
+        SetAttributes(entity, def);
+}
+
 //////////////////////////////////////////////////////////////////////////////
 // FILES                                                                    //
 //////////////////////////////////////////////////////////////////////////////
@@ -746,6 +762,9 @@ public void OnEntityCreated(int entity, const char[] classname)
 {
     if (HasEntProp(entity, Prop_Send, "m_iItemDefinitionIndex"))
         SDKHook(entity, SDKHook_Spawn, CEconEntity_Spawn);
+
+    if (1 <= entity <= MaxClients)
+        SDKHook(entity, SDKHook_Spawn, CTFPlayer_Spawn);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -767,6 +786,15 @@ static Action CEconEntity_Spawn(int entity)
     return Plugin_Continue;
 }
 
+// Pre-call CTFPlayer::Spawn().
+// Sort out class-specific attributes set via the provided config's definitions.
+// The same is done on resupply.
+static Action CTFPlayer_Spawn(int entity)
+{
+    SortPlayerAttributes(entity);
+    return Plugin_Continue;
+}
+
 //////////////////////////////////////////////////////////////////////////////
 // DHOOKS                                                                   //
 //////////////////////////////////////////////////////////////////////////////
@@ -775,11 +803,7 @@ static Action CEconEntity_Spawn(int entity)
 // Sort out class-specific attributes set via the provided config's definitions.
 static MRESReturn CTFPlayer_Regenerate(int entity, DHookParam parameters)
 {
-    TFClassType class = TF2_GetPlayerClass(entity);
-    Definition def;
-    TF2Attrib_RemoveAll(entity);
-    if (FindDefinitionByClass(def, class))
-        SetAttributes(entity, def);
+    SortPlayerAttributes(entity);
     return MRES_Ignored;
 }
 
