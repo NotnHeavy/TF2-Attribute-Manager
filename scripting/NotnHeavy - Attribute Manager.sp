@@ -41,7 +41,7 @@ public Plugin myinfo =
     name = PLUGIN_NAME,
     author = "NotnHeavy",
     description = "A simple manager for modifying TF2 weapons.",
-    version = "1.0.1",
+    version = "1.0.2",
     url = "none"
 };
 
@@ -368,11 +368,7 @@ public void OnAllPluginsLoaded()
         }
         else if (strcmp(g_szCurrentPath, GLOBALS_PATH) != 0)
             Format(g_szCurrentPath, sizeof(g_szCurrentPath), "addons/sourcemod/configs/attribute_manager/%s.cfg", g_szCurrentPath);
-        
-        if (!FileExists(g_szCurrentPath))
-            ThrowError("\"%s\" is not a valid config file (parameter \"defaultconfig\")", g_szCurrentPath);
-        else
-            PrintToServer("g_szCurrentPath set to \"%s\".", g_szCurrentPath);
+        PrintToServer("g_szCurrentPath set to \"%s\".", g_szCurrentPath);
 
         PrintToServer("");
         delete kv;
