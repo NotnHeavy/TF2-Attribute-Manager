@@ -41,7 +41,7 @@ public Plugin myinfo =
     name = PLUGIN_NAME,
     author = "NotnHeavy",
     description = "A simple manager for modifying TF2 weapons.",
-    version = "1.0.2",
+    version = "1.1",
     url = "none"
 };
 
@@ -89,11 +89,17 @@ static GlobalForward g_LoadedDefinitionsForward;
 // Can you believe that I'm actually using an enum struct for the first time since fucking ever?
 enum struct Definition
 {
+    // Definition name per config.
     char m_szName[64];
+
+    // Either is used to identify this definition.
+    char m_szClassname[64];
     int m_iItemDef;
+    TFClassType m_eClass;
+
+    // Data used to modify this definition.
     int m_iIndex;
     bool m_bOnlyIterateItemViewAttributes;
-    TFClassType m_eClass;
     ArrayList m_Attributes;
     ArrayList m_CustomAttributes;
 
@@ -195,12 +201,17 @@ enum struct Attribute
 
 static void CreateDefinition(Definition def, char szName[64], int iItemDef = -1, TFClassType eClass = TFClass_Unknown)
 {
+    // Store primary data.
     def.m_szName = szName;
     def.m_iItemDef = iItemDef;
     def.m_eClass = eClass;
     def.m_Attributes = new ArrayList(sizeof(Attribute));
     def.m_CustomAttributes = new ArrayList(sizeof(Attribute));
     def.m_bOnlyIterateItemViewAttributes = false;
+
+    // Store the classname as well if szName begins with tf_weapon_
+    if (StrContains(szName, "tf_weapon_") == 0)
+        def.m_szClassname = szName;
 }
 
 static bool FindDefinition(Definition def, int iItemDef)
@@ -236,6 +247,21 @@ static bool FindDefinitionByName(Definition def, char szName[64])
     return false;
 }
 
+static bool FindDefinitionByEntityClassname(Definition def, char szClassname[64])
+{
+    for (int i = 0, size = g_Definitions.Length; i < size; ++i)
+    {
+        Definition indexed;
+        g_Definitions.GetArray(i, indexed);
+        if (strcmp(szClassname, indexed.m_szClassname, false) == 0)
+        {
+            def = indexed;
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool FindDefinitionByClass(Definition def, TFClassType eClass)
 {
     for (int i = 0, size = g_Definitions.Length; i < size; ++i)
@@ -258,6 +284,9 @@ static bool FindDefinitionComplex(Definition def, char szName[64])
         return FindDefinition(def, itemdef);
 
     if (FindDefinitionByName(def, szName))
+        return true;
+
+    if (FindDefinitionByEntityClassname(def, szName))
         return true;
 
     itemdef = (g_LoadedEcon) ? RetrieveItemDefByName(szName) : TF_ITEMDEF_DEFAULT;
@@ -492,6 +521,7 @@ static void ParseDefinitions(const char[] path)
     {
         kv.GetSectionName(section, sizeof(section));
         TrimString(section);
+
         int itemdef = TF_ITEMDEF_DEFAULT;
         TFClassType eClass = TFClass_Unknown;
 
@@ -563,9 +593,15 @@ static void ParseDefinitions(const char[] path)
             while (kv.GotoNextKey(false));
             kv.GoBack();
         }
-
         def.PushToArray();
-        PrintToServer("Parsed definition %s (%s: %i)", section, ((eClass != TFClass_Unknown) ? "class enum" : "item definition index"), ((eClass != TFClass_Unknown) ? view_as<int>(eClass) : itemdef));
+        
+        // Debug information printed to the user.
+        char buffer[128];
+        if (StrContains(section, "tf_weapon_") == 0)
+            Format(buffer, sizeof(buffer), "classname: %s", section);
+        else
+            Format(buffer, sizeof(buffer), "%s: %i", ((eClass != TFClass_Unknown) ? "class enum" : "item definition index"), ((eClass != TFClass_Unknown) ? view_as<int>(eClass) : itemdef));
+        PrintToServer("Parsed definition %s (%s)", section, buffer);
     }
     while (kv.GotoNextKey());
     delete kv;
@@ -616,6 +652,8 @@ static int RetrieveItemDefByName(const char[] name)
         int itemdef = list.Get(i);
         TF2Econ_GetItemName(itemdef, buffer, sizeof(buffer));
         StringToLower(buffer, buffer, sizeof(buffer));
+        if (StrContains(buffer, "tf_weapon_") == 0) // Skip weapon entity classnames.
+            continue;
         definitions.SetValue(buffer, itemdef);
 
         // Make an additional entry if the first word is "The ".
@@ -623,9 +661,7 @@ static int RetrieveItemDefByName(const char[] name)
         {
             char buffer2[64];
             for (int i2 = 4, size2 = strlen(buffer) + 1; i2 < size2; ++i2)
-            {
                 buffer2[i2 - 4] = buffer[i2];
-            }
             definitions.SetValue(buffer2, itemdef);
         }
     }
@@ -772,8 +808,11 @@ public void OnEntityCreated(int entity, const char[] classname)
 static Action CEconEntity_Spawn(int entity)
 {
     int itemdef = GetEntProp(entity, Prop_Send, "m_iItemDefinitionIndex");
+    char classname[64];
     Definition def;
-    if (FindDefinition(def, itemdef))
+
+    GetEntityClassname(entity, classname, sizeof(classname));
+    if (FindDefinitionByEntityClassname(def, classname) || FindDefinition(def, itemdef))
     {
         // Should the entity's attributes be wiped out?
         SetEntProp(entity, Prop_Send, "m_bOnlyIterateItemViewAttributes", def.m_bOnlyIterateItemViewAttributes);
