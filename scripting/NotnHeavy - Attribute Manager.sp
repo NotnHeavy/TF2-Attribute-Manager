@@ -2,6 +2,8 @@
 // MADE BY NOTNHEAVY. USES GPL-3, AS PER REQUEST OF SOURCEMOD               //
 //////////////////////////////////////////////////////////////////////////////
 
+// 2024.07.11: TODO - rewrite definitions storage system to be similar to how weapon manager works maybe?
+
 // How I feel writing SourceMod plugins:
 // Apdujęs einu ten, kur muzika groja
 // Apsirūkęs aš ten pasijuntu lyg rojuj. 
@@ -41,7 +43,7 @@ public Plugin myinfo =
     name = PLUGIN_NAME,
     author = "NotnHeavy",
     description = "A simple manager for modifying TF2 weapons.",
-    version = "1.1",
+    version = "1.1.1",
     url = "none"
 };
 
@@ -195,8 +197,13 @@ enum struct Definition
 
 enum struct Attribute
 {   
-    char m_szName[64];
-    char m_szValue[64];
+    char m_szName[256];
+    char m_szValue[256];
+}
+
+static bool IsClassname(char szName[64])
+{
+    return (StrContains(szName, "tf_weapon_") == 0) || (StrContains(szName, "tf_wearable") == 0);
 }
 
 static void CreateDefinition(Definition def, char szName[64], int iItemDef = -1, TFClassType eClass = TFClass_Unknown)
@@ -210,7 +217,7 @@ static void CreateDefinition(Definition def, char szName[64], int iItemDef = -1,
     def.m_bOnlyIterateItemViewAttributes = false;
 
     // Store the classname as well if szName begins with tf_weapon_
-    if (StrContains(szName, "tf_weapon_") == 0)
+    if (IsClassname(szName))
         def.m_szClassname = szName;
 }
 
@@ -253,7 +260,7 @@ static bool FindDefinitionByEntityClassname(Definition def, char szClassname[64]
     {
         Definition indexed;
         g_Definitions.GetArray(i, indexed);
-        if (strcmp(szClassname, indexed.m_szClassname, false) == 0)
+        if (strlen(indexed.m_szClassname) > 0 && strcmp(szClassname, indexed.m_szClassname, false) == 0)
         {
             def = indexed;
             return true;
@@ -597,7 +604,7 @@ static void ParseDefinitions(const char[] path)
         
         // Debug information printed to the user.
         char buffer[128];
-        if (StrContains(section, "tf_weapon_") == 0)
+        if (IsClassname(section))
             Format(buffer, sizeof(buffer), "classname: %s", section);
         else
             Format(buffer, sizeof(buffer), "%s: %i", ((eClass != TFClass_Unknown) ? "class enum" : "item definition index"), ((eClass != TFClass_Unknown) ? view_as<int>(eClass) : itemdef));
@@ -634,6 +641,7 @@ void StringToLower(const char[] buffer, char[] output, int maxlength)
 // Requires TF2 Econ Data.
 static int RetrieveItemDefByName(const char[] name)
 {
+    // Retrieve item definition from definitions StringMap.
     static StringMap definitions;
     if (definitions)
     {
@@ -644,6 +652,7 @@ static int RetrieveItemDefByName(const char[] name)
         return (definitions.GetValue(buffer, value)) ? value : TF_ITEMDEF_DEFAULT;
     }
 
+    // If not present, create a new definitions StringMap.
     definitions = new StringMap();
     ArrayList list = TF2Econ_GetItemList();
     char buffer[64];
@@ -652,7 +661,7 @@ static int RetrieveItemDefByName(const char[] name)
         int itemdef = list.Get(i);
         TF2Econ_GetItemName(itemdef, buffer, sizeof(buffer));
         StringToLower(buffer, buffer, sizeof(buffer));
-        if (StrContains(buffer, "tf_weapon_") == 0) // Skip weapon entity classnames.
+        if (IsClassname(buffer)) // Skip item definition names which could be used as entity classnames.
             continue;
         definitions.SetValue(buffer, itemdef);
 
@@ -666,6 +675,81 @@ static int RetrieveItemDefByName(const char[] name)
         }
     }
     delete list;
+
+    // Create new entries for the stock weapons.
+    definitions.SetValue("the bat", 0);
+    definitions.SetValue("the bottle", 1);
+    definitions.SetValue("the fire axe", 2);
+    definitions.SetValue("the kukri", 3);
+    definitions.SetValue("the knife", 4);
+    definitions.SetValue("the fists", 5);
+    definitions.SetValue("the shovel", 6);
+    definitions.SetValue("the wrench", 7);
+    definitions.SetValue("the bonesaw", 8);
+    definitions.SetValue("the shotgun (engineer)", 9);
+    definitions.SetValue("the shotgun (soldier)", 10);
+    definitions.SetValue("the shotgun (heavy)", 11);
+    definitions.SetValue("the shotgun (pyro)", 12);
+    definitions.SetValue("the scattergun", 13);
+    definitions.SetValue("the sniper rifle", 14);
+    definitions.SetValue("the minigun", 15);
+    definitions.SetValue("the smg", 16);
+    definitions.SetValue("the syringe gun", 17);
+    definitions.SetValue("the rocket launcher", 18);
+    definitions.SetValue("the grenade launcher", 19);
+    definitions.SetValue("the stickybomb launcher", 20);
+    definitions.SetValue("the flame thrower", 21);
+    definitions.SetValue("the pistol (engineer)", 22);
+    definitions.SetValue("the pistol (scout)", 23);
+    definitions.SetValue("the revolver", 24);
+    definitions.SetValue("the construction pda", 25);
+    definitions.SetValue("the destruction pda", 26);
+    definitions.SetValue("the disguise kit", 27);
+    definitions.SetValue("the builder", 28); // Not sure why you'd want to modify this.
+    definitions.SetValue("the medi gun", 29);
+    definitions.SetValue("the invis watch", 30);
+    definitions.SetValue("the sapper", 735);
+    definitions.SetValue("the spellbook magazine", 1132);
+    definitions.SetValue("the grappling hook", 1152);
+    definitions.SetValue("the pass time gun", 1155);
+
+    definitions.SetValue("bat", 0);
+    definitions.SetValue("bottle", 1);
+    definitions.SetValue("fire axe", 2);
+    definitions.SetValue("kukri", 3);
+    definitions.SetValue("knife", 4);
+    definitions.SetValue("fists", 5);
+    definitions.SetValue("shovel", 6);
+    definitions.SetValue("wrench", 7);
+    definitions.SetValue("bonesaw", 8);
+    definitions.SetValue("shotgun (engineer)", 9);
+    definitions.SetValue("shotgun (soldier)", 10);
+    definitions.SetValue("shotgun (heavy)", 11);
+    definitions.SetValue("shotgun (pyro)", 12);
+    definitions.SetValue("scattergun", 13);
+    definitions.SetValue("sniper rifle", 14);
+    definitions.SetValue("minigun", 15);
+    definitions.SetValue("smg", 16);
+    definitions.SetValue("syringe gun", 17);
+    definitions.SetValue("rocket launcher", 18);
+    definitions.SetValue("grenade launcher", 19);
+    definitions.SetValue("stickybomb launcher", 20);
+    definitions.SetValue("flame thrower", 21);
+    definitions.SetValue("pistol (engineer)", 22);
+    definitions.SetValue("pistol (scout)", 23);
+    definitions.SetValue("revolver", 24);
+    definitions.SetValue("construction pda", 25);
+    definitions.SetValue("destruction pda", 26);
+    definitions.SetValue("disguise kit", 27);
+    definitions.SetValue("builder", 28);
+    definitions.SetValue("medi gun", 29);
+    definitions.SetValue("invis watch", 30);
+    definitions.SetValue("sapper", 735);
+    definitions.SetValue("spellbook magazine", 1132);
+    definitions.SetValue("grappling hook", 1152);
+    definitions.SetValue("passtime gun", 1155);
+
+    // Try again.
     return RetrieveItemDefByName(name);
 }
 

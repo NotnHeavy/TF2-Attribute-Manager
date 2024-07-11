@@ -44,8 +44,8 @@ enum struct Definition
 
 enum struct Attribute
 {   
-    char m_szName[64];
-    char m_szValue[64];
+    char m_szName[256];
+    char m_szValue[256];
 }
 
 //////////////////////////////////////////////////////////////////////////////
