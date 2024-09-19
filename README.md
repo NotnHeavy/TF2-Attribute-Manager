@@ -66,5 +66,5 @@ The following external dependencies are mandatory for this plugin to function:
 - [nosoop's TF2Attributes](https://github.com/nosoop/tf2attributes)
 
 The following external dependencies are advisory and may be utilised to improve plugin functionality, but not mandatory:
-- [nosoop's custom attribute framework](https://github.com/nosoop/SM-TFCustAttr) - if loaded, custom attributes may also be loaded onto players/weapons/wearables.
+- [nosoop's custom attribute framework](https://github.com/nosoop/SM-TFCustAttr) - if loaded, custom attributes may also be loaded onto players/weapons/wearables. This is also used to reject fake slot replacement entities set up by [Weapon Manager](https://github.com/NotnHeavy/TF2-Weapon-Manager).
 - [TF2 Econ Data](https://github.com/nosoop/SM-TFEconData) - if loaded, weapon/wearable names and item definition indexes can be resolved, alongside attribute definition indexes (attribute IDs) for their respective attribute names.

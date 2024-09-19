@@ -43,7 +43,7 @@ public Plugin myinfo =
     name = PLUGIN_NAME,
     author = "NotnHeavy",
     description = "A simple manager for modifying TF2 weapons.",
-    version = "1.1.1",
+    version = "1.1.2",
     url = "none"
 };
 
@@ -360,6 +360,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
     MarkNativeAsOptional("TF2CustAttr_SetInt");
     MarkNativeAsOptional("TF2CustAttr_SetFloat");
     MarkNativeAsOptional("TF2CustAttr_SetString");
+    MarkNativeAsOptional("TF2CustAttr_GetInt");
 
     // Register natives within this plugin.
     CreateNative("AttributeManager_GetDefinitions", Native_AttributeManager_GetDefinitions);
@@ -759,6 +760,10 @@ static int RetrieveItemDefByName(const char[] name)
 
 static void SetAttributes(int entity, Definition def)
 {
+    // Skip if this is a fake slot replacement entity used by Weapon Manager.
+    if (g_LoadedCustomAttributes && TF2CustAttr_GetInt(entity, "__IS_FAKE_SLOT_REPLACEMENT_ENTITY"))
+        return;
+
     // Iterate through TF2 attributes.
     for (int i = 0, size = def.m_Attributes.Length; i < size; ++i)
     {
